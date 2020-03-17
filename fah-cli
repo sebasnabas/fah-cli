@@ -1,0 +1,111 @@
+#!/bin/bash
+
+IP='localhost'
+PORT="36330"
+
+connect_to_server ()
+{
+    nc "$IP" "$PORT"
+}
+
+get_slot_info()
+{
+    status=$(printf "slot-info\nexit\n" | connect_to_server | tail -n +4 | head -n -3 | sed -e 's/\(\W\?\)\(False\|True\)\(\W\?\)/\1"\2"\3/g')
+
+    if [ "$1" == "-s" ]
+    then
+        status=$(echo "$status" | jq -c '.[]')
+    fi
+    echo "$status"
+}
+
+pause()
+{
+    slot_id="$1"
+    printf "pause %s\nexit\n" "$slot_id" | connect_to_server > /dev/null
+}
+
+function get_simulation_info()
+{
+    slot_id="$1"
+    status=$(printf "simulation-info %s\nexit\n" "$slot_id"| connect_to_server | head -n -3 | tail -n +4 | jq)
+
+    if [ "$2" == "-s" ]
+    then
+        status=$(echo "$status" | jq -c '.[]')
+    fi
+    echo "$status"
+}
+
+print_progress()
+{
+    total_progress=""
+
+    while read -r slot_info
+    do
+        slot_id=$(echo "$slot_info" | jq '.id' | sed 's/\"//g')
+        slot_progress=$(get_simulation_info "$slot_id" | jq '.progress')
+        slot_progress=$(echo "$slot_progress * 100" | bc)
+
+        total_progress="$total_progress, Slot #$slot_id: $slot_progress%"
+    done < <(get_slot_info -s)
+
+    total_progress=$(echo "$total_progress" | tail -c +3)
+    echo "$total_progress"
+}
+
+start()
+{
+    slot_id="$1"
+    printf "unpause %s\nexit\n" "$slot_id" | connect_to_server >/dev/null
+}
+
+toggle_slot()
+{
+    slot_id="$1"
+
+    if [ -z "$slot_id" ]
+    then
+        echo 'Slot id missing'
+        exit 1
+    fi
+
+    if [ "$(get_slot_info | jq ".[$slot_id].status" | sed 's/"//g')" == 'RUNNING' ]
+    then
+        pause "$slot_id"
+    else
+        start "$slot_id"
+    fi
+}
+
+toggle()
+{
+    if [ -n "$1" ]
+    then
+        toggle_slot "$1"
+    fi
+
+    while read -r slot_info
+    do
+        slot_id=$(echo "$slot_info" | jq '.id' | sed 's/\"//g')
+        toggle_slot "$slot_id"
+    done < <(get_slot_info -s)
+}
+
+options=("pause" "progress" "start" "status" "toggle" "toggle-slot")
+
+case "$1" in
+    ${options[0]}) pause "$2" ;;
+
+    "${options[1]}") print_progress ;;
+
+    "${options[2]}") start "$2" ;;
+
+    "${options[3]}") get_slot_info | jq ;;
+
+    "${options[4]}") toggle "$2" ;;
+
+    "${options[5]}") toggle_slot "$2" ;;
+
+    *) echo "Usage: $(basename "$0") [$(echo "${options[@]}" | tr ' ' '|')]" && exit 1
+esac
