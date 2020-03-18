@@ -37,7 +37,7 @@ function get_simulation_info()
     echo "$status"
 }
 
-print_progress()
+get_progress()
 {
     total_progress=""
 
@@ -47,7 +47,9 @@ print_progress()
         slot_progress=$(get_simulation_info "$slot_id" | jq '.progress')
         slot_progress=$(echo "$slot_progress * 100" | bc)
 
-        total_progress="$total_progress, Slot #$slot_id: $slot_progress%"
+        status="($(get_slot_info | jq ".[$slot_id].status" | sed 's/"//g'))"
+
+        total_progress="$total_progress, Slot #$slot_id: $slot_progress% $status"
     done < <(get_slot_info -s)
 
     total_progress=$(echo "$total_progress" | tail -c +3)
@@ -97,7 +99,7 @@ options=("pause" "progress" "start" "status" "toggle" "toggle-slot")
 case "$1" in
     ${options[0]}) pause "$2" ;;
 
-    "${options[1]}") print_progress ;;
+    "${options[1]}") get_progress ;;
 
     "${options[2]}") start "$2" ;;
 
